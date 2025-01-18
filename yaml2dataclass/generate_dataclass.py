@@ -60,14 +60,9 @@ class Name:
 
 
 class DataclassBuilder:
-    DEFAULT_IMPORTS = {
-        "from dataclasses import dataclass",
-        "from typing import Optional, Any"
-    }
-
     def __init__(self, name: Name):
         self.name = name
-        self.imports: set[str] = self.DEFAULT_IMPORTS.copy()
+        self.imports: set[str] = {"from dataclasses import dataclass", "from typing import Optional, Any"}
         self.parameters: List[str] = []
         self.docstring: Optional[str] = None
 
