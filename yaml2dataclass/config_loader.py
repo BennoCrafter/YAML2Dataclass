@@ -16,7 +16,7 @@ class ConfigLoader:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self, config_class: Optional[Any] = None):
+    def __init__(self, config_class: Any):
         if not hasattr(self, '_initialized'):
             self._initialized = True
             self._config_class = config_class
@@ -77,8 +77,3 @@ class ConfigLoader:
         Useful for testing or reloading config.
         """
         self._config = None
-
-if __name__ == "__main__":
-    config_loader = ConfigLoader()
-    config = config_loader.load_config(Path("config.yaml"))
-    print(config)

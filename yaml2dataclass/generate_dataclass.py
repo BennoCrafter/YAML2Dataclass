@@ -2,21 +2,52 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Any, Union, Optional
 from yaml2dataclass.yaml_reader import YAMLReader
+import re
+
 
 
 @dataclass
 class TypeAnnotation:
-    type_str: str
+    # example: "dict[str, Any]" or "list[str]"
+    generic_type: str
+    type_params: Optional[list[str]]
 
     @classmethod
     def from_comment(cls, comment: Optional[str]) -> 'TypeAnnotation':
-        if comment:
-            return cls(comment.strip('# ').strip())
-        return cls('')
+        if not comment:
+            return cls("", None)
+
+        paramterized_type = comment.strip('# ').strip()
+
+        pattern = r"(\w+)\[([^\]]+)\]|\b(\w+)\b"
+
+        # Find matches
+        matches = re.findall(pattern, paramterized_type)
+
+        parsed_result = []
+
+        for match in matches:
+            # If there's a match for a type with parameters (e.g., list[str])
+            if match[0] and match[1]:
+                generic_type = match[0]
+                type_params = [param.strip() for param in match[1].split(',')]
+                return cls(generic_type, type_params)
+            # If it's a simple type (e.g., str)
+            elif match[2]:
+                generic_type = match[2]
+                return cls(generic_type, None)
+
+        raise Exception(f"Failed to parse type annotation: {paramterized_type}")
 
     @classmethod
     def from_value(cls, value: Any) -> 'TypeAnnotation':
-        return cls(type(value).__name__)
+        return cls(type(value).__name__, None)
+
+    def to_paramterized_type(self) -> str:
+        if self.type_params:
+            return f"{self.generic_type}[{', '.join(self.type_params)}]"
+        return self.generic_type
+
 
 
 @dataclass
@@ -47,7 +78,7 @@ class MetaDataclass:
         self.imports.append(f"from {p} import {name.to_pascal_case()}")
 
     def add_parameter(self, key: str, type_annotation: TypeAnnotation, description: Optional[str] = None):
-        param = f"{key}: {type_annotation.type_str}"
+        param = f"{key}: {type_annotation.to_paramterized_type()}"
         if description:
             param += f"  # {description}"
         self.parameters.append(param)
@@ -100,7 +131,7 @@ def generate_dataclass(base_name: Name, data: dict, meta_dataclasses: list, dest
             m = generate_dataclass(name, value, meta_dataclasses, dest_path)
             meta_dataclasses.append(m)
             md.add_import(dest_path, name)
-            type_annotation = TypeAnnotation.from_comment(type_comment) if type_comment else TypeAnnotation(name.to_pascal_case())
+            type_annotation = TypeAnnotation.from_comment(type_comment) if type_comment else TypeAnnotation(name.to_pascal_case(), None)
             md.add_parameter(name.to_snake_case(), type_annotation, description)
 
         elif isinstance(value, list):
@@ -110,15 +141,16 @@ def generate_dataclass(base_name: Name, data: dict, meta_dataclasses: list, dest
 
                 if type_comment:
                     type_annotation = TypeAnnotation.from_comment(type_comment)
-                    m.name = Name(type_annotation.type_str[5:-1].lower())
+                    if type_annotation.type_params is not None and type_annotation.generic_type == "list":
+                        m.name = Name(type_annotation.type_params[0].lower())
                 else:
-                    type_annotation = TypeAnnotation(f"List[{name.to_pascal_case()}]")
+                    type_annotation = TypeAnnotation("list", [name.to_pascal_case()])
 
                 md.add_import(dest_path, m.name)
                 md.add_parameter(name.to_snake_case(), type_annotation, description)
             else:
                 item_type = type(value[0]).__name__ if value else "Any"
-                type_annotation = TypeAnnotation.from_comment(type_comment) if type_comment else TypeAnnotation(f"List[{item_type}]")
+                type_annotation = TypeAnnotation.from_comment(type_comment) if type_comment else TypeAnnotation("list", [item_type])
                 md.add_parameter(name.to_snake_case(), type_annotation, description)
         else:
             type_annotation = TypeAnnotation.from_comment(type_comment) if type_comment else TypeAnnotation.from_value(value)

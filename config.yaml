@@ -1,28 +1,64 @@
-users: # list[User]
-  - name: John # str
-    age: 30 # int
-    country:
-      name: Germany
-      population: 83783942
-    hobbies:
-      - swimming
-      - reading
-      - coding
-  - name: Sarah
-    age: 25
-    country:
-      name: France
-      population: 67391582
-    hobbies:
-      - painting
-      - gardening
-      - travel
-  - name: Marcus
-    age: 35
-    country:
-      name: Italy
-      population: 60317000
-    hobbies:
-      - cooking
-      - photography
-      - hiking
+version: "3.8"
+
+services:
+  web_app:
+    image: nginx:latest
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./config:/etc/nginx/conf.d
+      - web-data:/var/www/html
+    networks:
+      - frontend
+      - backend
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+
+  database:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: myapp
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "admin"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  frontend:
+    driver: overlay
+  backend:
+    driver: overlay
+    internal: true
+
+volumes:
+  web_data:
+    driver: local
+  db_data:
+    driver: local
+
+configs:
+  app_config:
+    file: ./config/app.conf
+  db_config:
+    file: ./config/db.conf
+
+secrets:
+  ssl_cert:
+    file: ./secrets/cert.pem
+  ssl_key:
+    file: ./secrets/key.pem
