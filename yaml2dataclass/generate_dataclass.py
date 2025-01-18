@@ -96,18 +96,66 @@ class DataclassBuilder:
         return f"{imports}\n\n{'\n'.join(class_def)}"
 
 
+class ValueHandler(ABC):
+    def __init__(self, generator: 'DataclassGenerator') -> None:
+        self.generator: 'DataclassGenerator' = generator
+
+    @abstractmethod
+    def handle(self, value: Any, name: Name, type_comment: Optional[str], description: Optional[str],
+              builder: DataclassBuilder, generator: 'DataclassGenerator') -> None:
+        raise NotImplementedError
+
+
+class DictValueHandler(ValueHandler):
+    def handle(self, value: Any, name: Name, type_comment: Optional[str], description: Optional[str],
+              builder: DataclassBuilder, generator: 'DataclassGenerator') -> None:
+        nested_builder = generator._generate_dataclass(name, value)
+        generator.builders.append(nested_builder)
+        builder.add_import(generator.dest_path, name)
+        type_annotation = (generator.comment_parser.parse(type_comment) if type_comment
+                         else TypeAnnotation(name.to_pascal_case(), None))
+        builder.add_parameter(name.to_snake_case(), type_annotation, description)
+
+
+class ListValueHandler(ValueHandler):
+    def handle(self, value: Any, name: Name, type_comment: Optional[str], description: Optional[str],
+              builder: DataclassBuilder, generator: 'DataclassGenerator') -> None:
+        if value and isinstance(value[0], dict):
+            nested_builder = generator._generate_dataclass(name, value[0])
+            generator.builders.append(nested_builder)
+
+            type_annotation = generator.comment_parser.parse(type_comment) if type_comment else TypeAnnotation("list", [name.to_pascal_case()])
+            if type_comment and type_annotation.type_params and type_annotation.generic_type == "list":
+                nested_builder.name = Name(type_annotation.type_params[0].lower())
+
+            builder.add_import(generator.dest_path, nested_builder.name)
+            builder.add_parameter(name.to_snake_case(), type_annotation, description)
+        else:
+            item_type = type(value[0]).__name__ if value else "Any"
+            if type_comment is not None:
+                type_annotation = generator.comment_parser.parse(type_comment)
+            else:
+                type_annotation = TypeAnnotation("list", [item_type])
+
+            builder.add_parameter(name.to_snake_case(), type_annotation, description)
+
+
 class DataclassGenerator:
     def __init__(self, dest_path: Path):
         self.dest_path = dest_path
         self.comment_parser = CommentTypeParser()
         self.value_parser = ValueTypeParser()
+        self.builders: List[DataclassBuilder] = []
+        self.handlers = {
+            dict: DictValueHandler(self),
+            list: ListValueHandler(self)
+        }
 
     def generate(self, yaml_path: Path) -> None:
         data = self._read_yaml(yaml_path)
-        meta_dataclasses: List[DataclassBuilder] = []
-        meta_dataclasses.append(self._generate_dataclass(Name("config"), data, meta_dataclasses))
+        self.builders.append(self._generate_dataclass(Name("config"), data))
 
-        for builder in meta_dataclasses:
+        for builder in self.builders:
             output_path = self.dest_path / f"{builder.name.to_snake_case()}.py"
             self._write_to_file(output_path, builder)
 
@@ -124,46 +172,16 @@ class DataclassGenerator:
             return value.get('value'), value.get('comment'), value.get('description')
         return value, None, None
 
-    def _handle_dict_value(self, value, name, type_comment, description, builder, builders):
-        nested_builder = self._generate_dataclass(name, value, builders)
-        builders.append(nested_builder)
-        builder.add_import(self.dest_path, name)
-        type_annotation = (self.comment_parser.parse(type_comment) if type_comment
-                         else TypeAnnotation(name.to_pascal_case(), None))
-        builder.add_parameter(name.to_snake_case(), type_annotation, description)
-
-    def _handle_list_value(self, value, name, type_comment, description, builder, builders):
-        if value and isinstance(value[0], dict):
-            nested_builder = self._generate_dataclass(name, value[0], builders)
-            builders.append(nested_builder)
-
-            type_annotation = self.comment_parser.parse(type_comment) if type_comment else TypeAnnotation("list", [name.to_pascal_case()])
-            if type_comment and type_annotation.type_params and type_annotation.generic_type == "list":
-                nested_builder.name = Name(type_annotation.type_params[0].lower())
-
-            builder.add_import(self.dest_path, nested_builder.name)
-            builder.add_parameter(name.to_snake_case(), type_annotation, description)
-        else:
-            item_type = type(value[0]).__name__ if value else "Any"
-            type_annotation = (self.comment_parser.parse(type_comment) if type_comment
-                             else TypeAnnotation("list", [item_type]))
-            builder.add_parameter(name.to_snake_case(), type_annotation, description)
-
-    def _generate_dataclass(self, base_name: Name, data: dict, builders: List[DataclassBuilder]) -> DataclassBuilder:
+    def _generate_dataclass(self, base_name: Name, data: dict) -> DataclassBuilder:
         builder = DataclassBuilder(base_name)
-
-        handlers = {
-            dict: self._handle_dict_value,
-            list: self._handle_list_value
-        }
 
         for key, raw_value in data.items():
             value, type_comment, description = self._parse_field_metadata(raw_value)
             name = Name(key)
 
-            handler = handlers.get(type(value))
+            handler = self.handlers.get(type(value))
             if handler:
-                handler(value, name, type_comment, description, builder, builders)
+                handler.handle(value, name, type_comment, description, builder, self)
             else:
                 type_annotation = (self.comment_parser.parse(type_comment) if type_comment
                                  else self.value_parser.parse(value))
