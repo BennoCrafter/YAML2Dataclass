@@ -1,6 +1,6 @@
 import argparse
 from pathlib import Path
-from yaml2dataclass.generate_dataclass import generate_dataclasses
+from yaml2dataclass.generate_dataclass import DataclassGenerator
 from yaml2dataclass.yaml_reader import YAMLReader
 
 
@@ -12,7 +12,9 @@ def main():
 
     data = YAMLReader(args.yaml_file).load_yaml()
 
-    generate_dataclasses(args.output_path, data)
+    generator = DataclassGenerator(args.output_path)
+    generator.generate(args.yaml_file)
+
 
 
 if __name__ == "__main__":
