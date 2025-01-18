@@ -1,0 +1,24 @@
+name: example-file
+version: 1.0.0
+description: A sample YAML file
+author: Test User
+server:
+  host: localhost
+  port: 8080
+database:
+  username: admin
+  password: secret123
+  host: db.example.com
+settings:
+  enable_logging: true
+  debug_mode: false
+  max_connections: 100
+
+events: # list[Event]
+  - name: test
+    description: Test event
+    enabled: true
+
+  - name: test2
+    description: Test event 2
+    enabled: false
