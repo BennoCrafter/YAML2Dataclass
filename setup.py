@@ -20,4 +20,9 @@ setup(
         "Operating System :: OS Independent",
     ],
     python_requires=">=3.10",
+    entry_points={
+        'console_scripts': [
+            'yaml2dataclass=yaml2dataclass.cli:main',
+        ],
+    }
 )

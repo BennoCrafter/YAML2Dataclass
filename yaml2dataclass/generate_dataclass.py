@@ -1,7 +1,7 @@
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Any, Union, Optional
-from yaml_reader import YAMLReader
+from yaml2dataclass.yaml_reader import YAMLReader
 
 
 @dataclass
