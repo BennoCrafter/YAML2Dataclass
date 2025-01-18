@@ -26,10 +26,8 @@ class CommentTypeParser(TypeParserInterface):
                 generic_type = match[0]
                 type_params = [param.strip() for param in match[1].split(',')]
                 return TypeAnnotation(generic_type, type_params)
-            # If it's a simple type (e.g., str)
             elif match[2]:
-                generic_type = match[2]
-                return TypeAnnotation(generic_type, None)
+                return TypeAnnotation(match[2], None)
 
         raise ValueError(f"Failed to parse type annotation: {paramterized_type}")
 
@@ -62,12 +60,14 @@ class Name:
 
 
 class DataclassBuilder:
+    DEFAULT_IMPORTS = {
+        "from dataclasses import dataclass",
+        "from typing import Optional, Any"
+    }
+
     def __init__(self, name: Name):
         self.name = name
-        self.imports: set[str] = {
-            "from dataclasses import dataclass",
-            "from typing import Optional, List, Any, Union"
-        }
+        self.imports: set[str] = self.DEFAULT_IMPORTS.copy()
         self.parameters: List[str] = []
         self.docstring: Optional[str] = None
 
@@ -82,8 +82,16 @@ class DataclassBuilder:
         self.parameters.append(param)
 
     def build(self) -> str:
-        imports = "\n".join(sorted(self.imports))
-        parameters = "\n    ".join(self.parameters)
+        parts = [
+            self._build_imports(),
+            self._build_class_definition()
+        ]
+        return "\n\n".join(parts)
+
+    def _build_imports(self) -> str:
+        return "\n".join(sorted(self.imports))
+
+    def _build_class_definition(self) -> str:
         class_def = [
             "@dataclass",
             f"class {self.name.to_pascal_case()}:"
@@ -92,52 +100,48 @@ class DataclassBuilder:
         if self.docstring:
             class_def.append(f'    """{self.docstring}"""')
 
-        class_def.append(f"    {parameters}")
-        return f"{imports}\n\n{'\n'.join(class_def)}"
+        if self.parameters:
+            class_def.append(f"    {self._format_parameters()}")
+
+        return "\n".join(class_def)
+
+    def _format_parameters(self) -> str:
+        return "\n    ".join(self.parameters)
 
 
 class ValueHandler(ABC):
     def __init__(self, generator: 'DataclassGenerator') -> None:
-        self.generator: 'DataclassGenerator' = generator
+        self.generator = generator
 
     @abstractmethod
-    def handle(self, value: Any, name: Name, type_comment: Optional[str], description: Optional[str],
-              builder: DataclassBuilder, generator: 'DataclassGenerator') -> None:
-        raise NotImplementedError
+    def handle(self, value: Any, name: Name, type_comment: Optional[str], description: Optional[str], builder: DataclassBuilder) -> None:
+        pass
 
 
 class DictValueHandler(ValueHandler):
-    def handle(self, value: Any, name: Name, type_comment: Optional[str], description: Optional[str],
-              builder: DataclassBuilder, generator: 'DataclassGenerator') -> None:
-        nested_builder = generator._generate_dataclass(name, value)
-        generator.builders.append(nested_builder)
-        builder.add_import(generator.dest_path, name)
-        type_annotation = (generator.comment_parser.parse(type_comment) if type_comment
-                         else TypeAnnotation(name.to_pascal_case(), None))
+    def handle(self, value: Any, name: Name, type_comment: Optional[str], description: Optional[str], builder: DataclassBuilder) -> None:
+        nested_builder = self.generator._generate_dataclass(name, value)
+        self.generator.builders.append(nested_builder)
+        builder.add_import(self.generator.dest_path, name)
+        type_annotation = TypeAnnotation(name.to_pascal_case(), None)
         builder.add_parameter(name.to_snake_case(), type_annotation, description)
 
 
 class ListValueHandler(ValueHandler):
-    def handle(self, value: Any, name: Name, type_comment: Optional[str], description: Optional[str],
-              builder: DataclassBuilder, generator: 'DataclassGenerator') -> None:
+    def handle(self, value: Any, name: Name, type_comment: Optional[str], description: Optional[str], builder: DataclassBuilder) -> None:
+        item_type = self._resolve_item_type(value, name, type_comment, builder)
+        type_annotation = TypeAnnotation("list", [item_type])
+        builder.add_parameter(name.to_snake_case(), type_annotation, description)
+
+    def _resolve_item_type(self, value: List, name: Name, type_comment: Optional[str], builder: DataclassBuilder) -> str:
         if value and isinstance(value[0], dict):
-            nested_builder = generator._generate_dataclass(name, value[0])
-            generator.builders.append(nested_builder)
+            nested_name = Name(name.name[:-1])  # Singularize the name
+            nested_builder = self.generator._generate_dataclass(nested_name, value[0])
+            builder.add_import(self.generator.dest_path, nested_name)
+            self.generator.builders.append(nested_builder)
+            return nested_name.to_pascal_case()
 
-            type_annotation = generator.comment_parser.parse(type_comment) if type_comment else TypeAnnotation("list", [name.to_pascal_case()])
-            if type_comment and type_annotation.type_params and type_annotation.generic_type == "list":
-                nested_builder.name = Name(type_annotation.type_params[0].lower())
-
-            builder.add_import(generator.dest_path, nested_builder.name)
-            builder.add_parameter(name.to_snake_case(), type_annotation, description)
-        else:
-            item_type = type(value[0]).__name__ if value else "Any"
-            if type_comment is not None:
-                type_annotation = generator.comment_parser.parse(type_comment)
-            else:
-                type_annotation = TypeAnnotation("list", [item_type])
-
-            builder.add_parameter(name.to_snake_case(), type_annotation, description)
+        return type(value[0]).__name__ if value else "Any"
 
 
 class DataclassGenerator:
@@ -157,20 +161,15 @@ class DataclassGenerator:
 
         for builder in self.builders:
             output_path = self.dest_path / f"{builder.name.to_snake_case()}.py"
-            self._write_to_file(output_path, builder)
+            self._write_to_file(output_path, builder.build())
 
     def _read_yaml(self, path: Path) -> Dict:
         return YAMLReader(path).load_yaml()
 
-    def _write_to_file(self, path: Path, builder: DataclassBuilder) -> None:
+    def _write_to_file(self, path: Path, content: str) -> None:
         path.parent.mkdir(exist_ok=True, parents=True)
         with open(path, "w") as f:
-            f.write(builder.build())
-
-    def _parse_field_metadata(self, value: Any) -> tuple[Any, Optional[str], Optional[str]]:
-        if isinstance(value, dict) and 'value' in value:
-            return value.get('value'), value.get('comment'), value.get('description')
-        return value, None, None
+            f.write(content)
 
     def _generate_dataclass(self, base_name: Name, data: dict) -> DataclassBuilder:
         builder = DataclassBuilder(base_name)
@@ -181,13 +180,17 @@ class DataclassGenerator:
 
             handler = self.handlers.get(type(value))
             if handler:
-                handler.handle(value, name, type_comment, description, builder, self)
+                handler.handle(value, name, type_comment, description, builder)
             else:
-                type_annotation = (self.comment_parser.parse(type_comment) if type_comment
-                                 else self.value_parser.parse(value))
+                type_annotation = self.comment_parser.parse(type_comment) if type_comment else self.value_parser.parse(value)
                 builder.add_parameter(name.to_snake_case(), type_annotation, description)
 
         return builder
+
+    def _parse_field_metadata(self, value: Any) -> tuple[Any, Optional[str], Optional[str]]:
+        if isinstance(value, dict) and 'value' in value:
+            return value['value'], value.get('comment'), value.get('description')
+        return value, None, None
 
 
 if __name__ == '__main__':

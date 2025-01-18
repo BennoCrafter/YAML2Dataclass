@@ -2,6 +2,7 @@ from config.auth import Auth
 from config.database import Database
 from config.logging import Logging
 from config.metrics import Metrics
+from config.user import User
 from dataclasses import dataclass
 from typing import Optional, List, Any, Union
 
@@ -11,3 +12,4 @@ class Config:
     database: Database
     logging: Logging
     metrics: Metrics
+    users: list[User]

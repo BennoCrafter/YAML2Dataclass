@@ -17,3 +17,18 @@ logging:
 metrics:
   enabled: true
   endpoint: /metrics
+
+users: # list[User]
+  - name: John Doe
+    age: 30
+    email: john@example.com
+    roles:
+      - admin
+      - user
+      - editor
+  - name: Jane Doe
+    age: 25
+    email: jane@example.com
+    roles:
+      - user
+      - editor
