@@ -1,0 +1,28 @@
+users: # list[User]
+  - name: John # str
+    age: 30 # int
+    country:
+      name: Germany
+      population: 83783942
+    hobbies:
+      - swimming
+      - reading
+      - coding
+  - name: Sarah
+    age: 25
+    country:
+      name: France
+      population: 67391582
+    hobbies:
+      - painting
+      - gardening
+      - travel
+  - name: Marcus
+    age: 35
+    country:
+      name: Italy
+      population: 60317000
+    hobbies:
+      - cooking
+      - photography
+      - hiking
