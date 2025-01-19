@@ -16,7 +16,7 @@ pip install -e .
 
 ## Usage
 
-Look at the [example](example/main.py)
+Look at the [example](example/)
 
 ```python
 from yaml2dataclass import ConfigLoader
