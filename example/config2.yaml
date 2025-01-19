@@ -1,0 +1,13 @@
+myself:
+  name: Benno
+  age: 30
+  friends:
+    - name: John
+      age: 20
+      friends:
+        - name: Jane
+          age: 21
+          friends: []
+
+    - name: Alice
+      age: 22
